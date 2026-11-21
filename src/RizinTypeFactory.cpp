@@ -31,12 +31,11 @@ Datatype *RizinTypeFactory::addRizinStruct(RzBaseType *type, StackTypes &stack_t
 		RzCoreLock core(arch->getCore());
 		ut64 offset = 0;
 		TypeStruct *r = getTypeStruct(type->name);
-		if (prototype) {
-			prototypes.insert(r);
+		// Keeps the struct a prototype until its fields are set, so a member of the struct's own type finds the
+		// recursion instead of the unfinished struct, which the decompiler can't take apart.
+		prototypes.insert(r);
+		if (prototype)
 			return r;
-		} else {
-			prototypes.erase(r);
-		}
 		void *it;
 		RzTypeDB *typedb = rz_analysis_get_type_db(core->analysis);
 		rz_vector_foreach_cpp<RzTypeStructMember>(&type->struct_data.members, [&](RzTypeStructMember *member) {
@@ -73,6 +72,7 @@ Datatype *RizinTypeFactory::addRizinStruct(RzBaseType *type, StackTypes &stack_t
 		int4 align = 1; // TODO: take this from rizin if available in the future
 		int4 size = offset + rz_num_align_delta(offset, align);
 		setFields(fields, bitfields, r, size, align, 0);
+		prototypes.erase(r);
 		return r;
 	}
 
