@@ -39,6 +39,20 @@ static std::string hex(ut64 v)
 	return ss.str();
 }
 
+// Returns the index of the trial that holds the first or the last byte of a range, or -1. Replaces
+// ParamActive::whichTrial, which gives up after the first trial for a range of 1 byte.
+static int4 trialAt(ParamActive &params, const Address &addr, int4 size)
+{
+	Address last = addr + (size - 1);
+	for(int4 i = 0; i < params.getNumTrials(); i++)
+	{
+		const ParamTrial &trial = params.getTrial(i);
+		if(addr.overlap(0, trial.getAddress(), trial.getSize()) >= 0 || last.overlap(0, trial.getAddress(), trial.getSize()) >= 0)
+			return i;
+	}
+	return -1;
+}
+
 static Element *child(Element *el, const std::string &name, const std::map<std::string, std::string> &attrs = {})
 {
 	auto child = new Element(el);
@@ -226,7 +240,9 @@ FunctionSymbol *RizinScope::registerFunction(RzAnalysisFunction *fcn) const
 		if(addr.isInvalid())
 			return true;
 		params.registerTrial(addr, type->getSize());
-		int4 i = params.whichTrial(addr, type->getSize());
+		int4 i = trialAt(params, addr, type->getSize());
+		if(i < 0)
+			return true;
 		params.getTrial(i).markActive();
 		params.getTrial(i).markUsed();
 		return true;
@@ -302,7 +318,7 @@ FunctionSymbol *RizinScope::registerFunction(RzAnalysisFunction *fcn) const
 				return true;
 			}
 
-			int4 paramTrialIndex = params.whichTrial(addr, type->getSize());
+			int4 paramTrialIndex = trialAt(params, addr, type->getSize());
 			if(paramTrialIndex < 0)
 			{
 				arch->addWarning("Failed to determine arg index of " + to_string(var->name));
