@@ -48,6 +48,8 @@ Datatype *RizinTypeFactory::addRizinStruct(RzBaseType *type, StackTypes &stack_t
 				arch->addWarning(std::string("Failed to match type ") + (tstr ? tstr : "?") + " of member " + member->name
 						+ " in struct " + type->name);
 				rz_mem_free(tstr);
+				// Keeps the space of the member, so the members after it stay at their offsets.
+				offset += rz_type_db_get_bitsize(typedb, member->type) / 8;
 				return;
 			}
 
