@@ -24,4 +24,17 @@ void PcodeFixupPreprocessor::fixupSharedReturnJumpToRelocs(RzAnalysisFunction *f
 				func->getOverride().insertFlowOverride(Address(arch.getDefaultCodeSpace(), xref->from), Override::CALL_RETURN);
 		}
 	});
+	rz_list_free(xrefs);
+
+	// Marks a jump at the end of a block to the start of another function as a call and a return, because it's a
+	// tail call and the code of the other function doesn't belong to this one.
+	rz_pvector_foreach_cpp<RzAnalysisBlock>(function->bbs, [&](RzAnalysisBlock *block) {
+		RzAnalysisFunction *target = rz_analysis_get_function_at(core->analysis, block->jump);
+		if (block->fail == UT64_MAX && block->ninstr > 0 && target != nullptr && target != function)
+		{
+			ut64 jump = rz_analysis_block_get_op_addr(block, block->ninstr - 1);
+			func->getOverride().insertFlowOverride(Address(arch.getDefaultCodeSpace(), jump), Override::CALL_RETURN);
+		}
+		return true;
+	});
 }
