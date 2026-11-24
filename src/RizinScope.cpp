@@ -681,12 +681,43 @@ FunctionSymbol *RizinScope::registerFunction(RzAnalysisFunction *fcn) const
 	}
 	// TODO: should we try to get the return address from rizin's cc?
 
-	auto returnsymElement = child(prototypeElement, "returnsym");
-	childAddr(returnsymElement, "addr", returnAddr);
+	// The return value's storage comes from the model, like Ghidra assigns it for a signature of its own database
+	Datatype *returnType = fcn->ret_type ? arch->getTypeFactory()->fromRzType(fcn->ret_type) : nullptr;
+	Address returnStorage;
+	if(returnType && returnType->getMetatype() != TYPE_VOID && proto)
+	{
+		PrototypePieces pieces;
+		pieces.model = proto;
+		pieces.outtype = returnType;
+		pieces.firstVarArgSlot = -1;
+		std::vector<ParameterPieces> assigned;
+		try
+		{
+			proto->assignParameterStorage(pieces, assigned, true);
+			if(!assigned.empty())
+				returnStorage = assigned[0].addr;
+		}
+		catch(const LowlevelError &)
+		{
+		}
+	}
 
-	child(returnsymElement, "typeref", {
-			{ "name", "undefined" }
-	});
+	if(returnStorage.isInvalid())
+	{
+		auto returnsymElement = child(prototypeElement, "returnsym");
+		childAddr(returnsymElement, "addr", returnAddr);
+		child(returnsymElement, "typeref", {
+				{ "name", "undefined" }
+		});
+	}
+	else
+	{
+		auto returnsymElement = child(prototypeElement, "returnsym", {
+				{ "typelock", "true" }
+		});
+		childAddr(returnsymElement, "addr", returnStorage);
+		childType(returnsymElement, returnType);
+	}
 
 	child(&doc, "addr", {
 			{ "space", arch->getDefaultCodeSpace()->getName() },
