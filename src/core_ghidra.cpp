@@ -18,6 +18,7 @@
 
 #include <libdecomp.hh>
 #include <printc.hh>
+#include "RizinPrintCSharp.h"
 
 #include <rz_core.h>
 
@@ -198,7 +199,8 @@ static void ApplyPrintCConfig(RzConfig *cfg, PrintC *print_c)
 	print_c->setMaxLineSize(cfg_var_linelen.Get(cfg));
 }
 
-static void Decompile(RzCore *core, ut64 addr, DecompileMode mode, std::stringstream &out_stream, RzAnnotatedCode **out_code)
+static void Decompile(RzCore *core, ut64 addr, DecompileMode mode, std::stringstream &out_stream, RzAnnotatedCode **out_code,
+	const RzGhidraCSharpNames *names = nullptr, RzVector *links = nullptr)
 {
 	RzAnalysisFunction *function = rz_analysis_get_fcn_in(core->analysis, addr, RZ_ANALYSIS_FCN_TYPE_NULL);
 	if(!function)
@@ -211,7 +213,18 @@ static void Decompile(RzCore *core, ut64 addr, DecompileMode mode, std::stringst
 	arch.init(store);
 	Funcdata *func = arch.symboltab->getGlobalScope()->findFunction(Address(arch.getDefaultCodeSpace(), function->addr));
 	arch.print->setOutputStream(&out_stream);
-	arch.setPrintLanguage("rizin-c-language");
+	RizinPrintCSharp *csharp = nullptr;
+	if(names)
+	{
+		// The architecture frees the printers of its list
+		csharp = new RizinPrintCSharp(&arch, names);
+		csharp->setOutputStream(&out_stream);
+		csharp->initializeFromArchitecture();
+		arch.printlist.push_back(csharp);
+		arch.setPrintLanguage(csharp->getName());
+	}
+	else
+		arch.setPrintLanguage("rizin-c-language");
 	ApplyPrintCConfig(core->config, dynamic_cast<PrintC *>(arch.print));
 	if(!func)
 		throw LowlevelError("No function in Scope");
@@ -279,7 +292,14 @@ static void Decompile(RzCore *core, ut64 addr, DecompileMode mode, std::stringst
 			arch.print->docFunction(func);
 			if(mode != DecompileMode::XML)
 			{
-				*out_code = ParseCodeXML(func, out_stream.str().c_str());
+				if(csharp && links)
+				{
+					std::map<unsigned long long, std::string> typeNames(csharp->getTypeLinks().begin(), csharp->getTypeLinks().end());
+					CodeXMLLinks codeLinks = { &typeNames, links };
+					*out_code = ParseCodeXML(func, out_stream.str().c_str(), &codeLinks);
+				}
+				else
+					*out_code = ParseCodeXML(func, out_stream.str().c_str());
 				if (!*out_code)
 					throw LowlevelError("Failed to parse XML code from Decompiler");
 			}
@@ -317,6 +337,23 @@ RZ_API RzAnnotatedCode *rz_ghidra_decompile_annotated_code(RzCore *core, ut64 ad
 		return code;
 	}
 #endif
+}
+
+RZ_API RzAnnotatedCode *rz_ghidra_decompile_csharp(RzCore *core, ut64 addr, const RzGhidraCSharpNames *names, RzVector *links)
+{
+	DecompilerLock lock(core);
+	RzAnnotatedCode *code = nullptr;
+	try
+	{
+		std::stringstream out_stream;
+		Decompile(core, addr, DecompileMode::DEFAULT, out_stream, &code, names, links);
+		return code;
+	}
+	catch(const LowlevelError &error)
+	{
+		std::string s = "Ghidra Decompiler Error: " + error.explain;
+		return rz_annotated_code_new(strdup(s.c_str()));
+	}
 }
 
 static void DecompileCmd(RzCore *core, DecompileMode mode)

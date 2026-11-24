@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 
 #include "CodeXMLParse.h"
+#include "rz_ghidra.h"
 #include <rz_util/rz_annotated_code.h>
 
 #ifdef LoadImage
@@ -24,6 +25,7 @@ struct ParseCodeXMLContext
 	std::map<uintm, PcodeOp *> ops;
 	std::map<unsigned long long, Varnode *> varnodes;
 	std::map<unsigned long long, Symbol *> symbols;
+	const CodeXMLLinks *links = nullptr;
 	
 	explicit ParseCodeXMLContext(Funcdata *func) : func(func)
 	{
@@ -268,6 +270,44 @@ static const std::map<std::string, std::vector <void (*)(ANNOTATOR_PARAMS)> > an
 	{ "value", { AnnotateColor } }
 };
 
+/**
+ * Reads the link of a node of C# code that names a type, a field or the declaring type of a called function,
+ * which the C# printer writes as an operator of the type color at the call.
+ **/
+static bool ReadLink(pugi::xml_node node, ParseCodeXMLContext *ctx, RzGhidraCSharpLink *link)
+{
+	if(strcmp(node.name(), "type") == 0)
+	{
+		auto found = ctx->links->typeNames->find(node.attribute("id").as_ullong(0));
+		if(found == ctx->links->typeNames->end())
+			return false;
+		link->kind = RZ_GHIDRA_CSHARP_LINK_TYPE;
+		link->name = strdup_rz(found->second.c_str());
+		return true;
+	}
+	if(strcmp(node.name(), "field") == 0)
+	{
+		pugi::xml_attribute name = node.attribute("name");
+		if(name.empty())
+			return false;
+		link->kind = RZ_GHIDRA_CSHARP_LINK_FIELD;
+		link->name = strdup_rz(name.value());
+		link->offset = node.attribute("off").as_ullong(0);
+		return true;
+	}
+	if(strcmp(node.name(), "op") == 0 && node.attribute("color").as_int(-1) == Emit::syntax_highlight::type_color)
+	{
+		auto op = ctx->ops.find((uintm)node.attribute("opref").as_ullong(ULLONG_MAX));
+		FuncCallSpecs *call = op == ctx->ops.end() ? nullptr : ctx->func->getCallSpecs(op->second);
+		if(!call)
+			return false;
+		link->kind = RZ_GHIDRA_CSHARP_LINK_DECLARING_TYPE;
+		link->offset = call->getEntryAddress().getOffset();
+		return true;
+	}
+	return false;
+}
+
 //#define TEST_UNKNOWN_NODES
 
 /**
@@ -289,6 +329,9 @@ static void ParseNode(pugi::xml_node node, ParseCodeXMLContext *ctx, std::ostrea
 	}
 
 	std::vector<RzCodeAnnotation> annotations;
+	RzGhidraCSharpLink link = {};
+	bool hasLink = ctx->links && ReadLink(node, ctx, &link);
+	link.start = stream.tellp();
 #ifdef TEST_UNKNOWN_NODES
 	bool close_test = false;
 	static const std::set<std::string> boring_tags = { "syntax" };
@@ -331,6 +374,11 @@ static void ParseNode(pugi::xml_node node, ParseCodeXMLContext *ctx, std::ostrea
 		annotation.end = stream.tellp();
 		rz_annotated_code_add_annotation(code, &annotation);
 	}
+	if(hasLink)
+	{
+		link.end = stream.tellp();
+		rz_vector_push(ctx->links->links, &link);
+	}
 
 #ifdef TEST_UNKNOWN_NODES
 	if(close_test)
@@ -338,7 +386,7 @@ static void ParseNode(pugi::xml_node node, ParseCodeXMLContext *ctx, std::ostrea
 #endif
 }
 
-RZ_API RzAnnotatedCode *ParseCodeXML(Funcdata *func, const char *xml)
+RZ_API RzAnnotatedCode *ParseCodeXML(Funcdata *func, const char *xml, const CodeXMLLinks *links)
 {
 	pugi::xml_document doc;
 	if(!doc.load_string(xml, pugi::parse_default | pugi::parse_ws_pcdata_single))
@@ -350,6 +398,7 @@ RZ_API RzAnnotatedCode *ParseCodeXML(Funcdata *func, const char *xml)
 		return nullptr;
 
 	ParseCodeXMLContext ctx(func);
+	ctx.links = links;
 	ParseNode(doc.child("function"), &ctx, ss, code);
 
 	std::string str = ss.str();

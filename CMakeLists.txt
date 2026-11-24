@@ -57,6 +57,8 @@ set(CORE_SOURCE
 		src/ArchMap.cpp
 		src/RizinPrintC.h
 		src/RizinPrintC.cpp
+		src/RizinPrintCSharp.h
+		src/RizinPrintCSharp.cpp
 		src/RzCoreMutex.h
 		src/RzCoreMutex.cpp
 		src/PcodeFixupPreprocessor.h

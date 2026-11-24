@@ -14,6 +14,7 @@ class RizinPrintC : public ghidra::PrintC
 
 	public:
 		explicit RizinPrintC(ghidra::Architecture *g, const std::string &nm = "c-language");
+		void adjustTypeOperators() override;
 
 };
 

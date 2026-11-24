@@ -32,6 +32,13 @@ RizinPrintC::RizinPrintC(Architecture *g, const string &nm)
 {
 }
 
+void RizinPrintC::adjustTypeOperators()
+{
+	PrintC::adjustTypeOperators();
+	// The C# printer writes a member of a pointer with a dot
+	pointer_member.print1 = "->";
+}
+
 void RizinPrintC::pushUnnamedLocation(const Address &addr, const Varnode *vn, const PcodeOp *op)
 {
 	// print (*(type *)0x0000...) instead of ram00000...
