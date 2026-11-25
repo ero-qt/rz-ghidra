@@ -47,6 +47,7 @@ typedef struct rz_ghidra_csharp_type_t {
 	const char *name; ///< the C# name of the struct's type, like `Circle`
 	bool is_object; ///< whether a pointer to the struct is a reference to an object of the class
 	bool is_static; ///< whether the struct has the static fields of the class
+	bool is_array; ///< whether the struct is an array's object, whose member of an array type has the array's items
 } RzGhidraCSharpType;
 
 /**

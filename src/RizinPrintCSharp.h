@@ -65,6 +65,7 @@ class RizinPrintCSharp : public RizinPrintC
 		void pushArguments(const ghidra::PcodeOp *op, int first, int count);
 		bool pushOperator(const ghidra::PcodeOp *op, const Function &callee, int first);
 		void pushRaise(const ghidra::PcodeOp *op, const Function &callee);
+		bool pushItems(const ghidra::PcodeOp *op, const ghidra::TypePointer *pointer);
 
 	protected:
 		void pushTypeStart(const ghidra::Datatype *ct, bool noident) override;

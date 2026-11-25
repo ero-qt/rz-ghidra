@@ -636,12 +636,35 @@ void RizinPrintCSharp::opCall(const PcodeOp *op)
 	pushArguments(op, first, callee.parameters);
 }
 
+/// Pushes the array itself for the member with the items of an array's object, so an item reads as `array[index]`,
+/// and returns false for another member.
+bool RizinPrintCSharp::pushItems(const PcodeOp *op, const TypePointer *pointer)
+{
+	int8 offset = AddrSpace::addressToByteInt((int4)op->getIn(1)->getOffset(), pointer->getWordSize());
+	int8 inField = 0;
+	const TypeField *field = ((const TypeStruct *)pointer->getPtrTo())->findTruncation(offset, 0, op, 0, inField);
+	if(!field || inField != 0 || field->type->getMetatype() != TYPE_ARRAY)
+		return false;
+
+	// The first item, when nothing adds an index to the items' address
+	bool isValue = (mods & (print_load_value | print_store_value)) != 0;
+	uint4 m = mods & ~(print_load_value | print_store_value);
+	if(isValue)
+		pushOp(&subscript, op);
+	pushVn(op->getIn(0), op, m);
+	if(isValue)
+		push_integer(0, 4, false, syntax, (Varnode *)0, op, 0);
+	return true;
+}
+
 void RizinPrintCSharp::opPtrsub(const PcodeOp *op)
 {
 	const Varnode *in0 = op->getIn(0);
 	const Datatype *pointer = in0->getHighTypeReadFacing(op);
 	const Datatype *ct = pointer->getMetatype() == TYPE_PTR ? ((const TypePointer *)pointer)->getPtrTo() : nullptr;
 	const RzGhidraCSharpType *type = ct ? findType(ct) : nullptr;
+	if(type && type->is_array && pushItems(op, (const TypePointer *)pointer))
+		return;
 	if(!type || !type->is_static)
 	{
 		RizinPrintC::opPtrsub(op);
