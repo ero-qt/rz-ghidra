@@ -108,7 +108,7 @@ static std::string pointedStruct(const Varnode *vn)
 /// Checks whether a method that shares the called code takes the call's arguments: their count with the object of an
 /// instance method and the hidden last argument, and the struct of each argument that points to a struct where the
 /// method's parameter points to one.
-bool RizinPrintCSharp::fitsCall(const PcodeOp *op, const RzGhidraCSharpSharer &sharer) const
+static bool takesArguments(const PcodeOp *op, const RzGhidraCSharpSharer &sharer)
 {
 	int first = sharer.function.is_static ? 1 : 2;
 	if(op->numInput() - 1 != (int)sharer.function.parameters + first)
@@ -129,8 +129,47 @@ bool RizinPrintCSharp::fitsCall(const PcodeOp *op, const RzGhidraCSharpSharer &s
 	return true;
 }
 
+/// Checks whether a constructor that shares the called code takes the call's arguments and is the constructor of the
+/// call's object, because the object points to the constructor's own struct.
+static bool constructsObject(const PcodeOp *op, const RzGhidraCSharpSharer &sharer)
+{
+	if(sharer.function.kind != RZ_GHIDRA_CSHARP_CONSTRUCTOR || sharer.function.is_static || !takesArguments(op, sharer))
+		return false;
+
+	std::string structs = sharer.parameter_structs ? sharer.parameter_structs : "";
+	std::string own = structs.substr(0, structs.find(','));
+	return !own.empty() && pointedStruct(op->getIn(1)) == own;
+}
+
+/// Checks whether a call of shared code is the call of a constructor that shares the code on the call's object.
+bool RizinPrintCSharp::isSharedConstructor(const PcodeOp *op) const
+{
+	if(!names || !names->sharer || op->code() != CPUI_CALL || op->getIn(0)->getSpace()->getType() != IPTR_FSPEC)
+		return false;
+
+	uint8 addr = FuncCallSpecs::getFspecFromConst(op->getIn(0)->getAddr())->getEntryAddress().getOffset();
+	for(ut32 i = 0;; ++i)
+	{
+		const RzGhidraCSharpSharer *sharer = names->sharer(names->user, addr, i);
+		if(!sharer)
+			return false;
+		if(constructsObject(op, *sharer))
+			return true;
+	}
+}
+
+/// Checks whether a method that shares the called code fits the call. A constructor only fits a call on the object
+/// that an allocation right before makes of the constructor's type, so the call reads as `new`.
+bool RizinPrintCSharp::fitsCall(const PcodeOp *op, const RzGhidraCSharpSharer &sharer) const
+{
+	if(sharer.function.kind == RZ_GHIDRA_CSHARP_CONSTRUCTOR)
+		return constructsObject(op, sharer) && findAllocation(op) != nullptr;
+	return takesArguments(op, sharer);
+}
+
 /// Finds the method that a call of shared code reads as, among the methods that share the code and fit the call. Every
-/// one of them runs the same code, so the call reads as an operator when one fits, or else as the only one that fits.
+/// one of them runs the same code, so the call reads as an operator or a constructor when one fits, or else as the
+/// only one that fits.
 bool RizinPrintCSharp::findSharer(const PcodeOp *op, Function &function, unsigned int &index) const
 {
 	if(!names || !names->sharer || op->code() != CPUI_CALL || op->getIn(0)->getSpace()->getType() != IPTR_FSPEC)
@@ -138,17 +177,18 @@ bool RizinPrintCSharp::findSharer(const PcodeOp *op, Function &function, unsigne
 
 	uint8 addr = FuncCallSpecs::getFspecFromConst(op->getIn(0)->getAddr())->getEntryAddress().getOffset();
 	int fitting = 0;
-	bool isOperator = false;
+	bool isPreferred = false;
 	for(ut32 i = 0;; ++i)
 	{
 		const RzGhidraCSharpSharer *sharer = names->sharer(names->user, addr, i);
 		if(!sharer)
 			break;
-		if(isOperator || !fitsCall(op, *sharer))
+		if(isPreferred || !fitsCall(op, *sharer))
 			continue;
 
-		isOperator = sharer->function.kind == RZ_GHIDRA_CSHARP_OPERATOR;
-		if(++fitting > 1 && !isOperator)
+		RzGhidraCSharpKind kind = sharer->function.kind;
+		isPreferred = kind == RZ_GHIDRA_CSHARP_OPERATOR || kind == RZ_GHIDRA_CSHARP_CONSTRUCTOR;
+		if(++fitting > 1 && !isPreferred)
 			continue;
 		function.kind = sharer->function.kind;
 		function.type = sharer->function.type ? sharer->function.type : "";
@@ -157,7 +197,7 @@ bool RizinPrintCSharp::findSharer(const PcodeOp *op, Function &function, unsigne
 		function.parameters = (int)sharer->function.parameters;
 		index = sharer->index;
 	}
-	return isOperator || fitting == 1;
+	return isPreferred || fitting == 1;
 }
 
 const RzGhidraCSharpType *RizinPrintCSharp::findType(const Datatype *ct) const
@@ -298,7 +338,7 @@ bool RizinPrintCSharp::isThis(const Varnode *vn, const PcodeOp *op) const
 }
 
 /// Returns the constructor's call on the object that a call allocates, when both are in 1 block, so they print as
-/// 1 `new` expression at the constructor's call.
+/// 1 `new` expression at the constructor's call. The call can also be of code that the constructor shares.
 const PcodeOp *RizinPrintCSharp::findConstructor(const PcodeOp *allocation) const
 {
 	const Varnode *object = allocation->getOut();
@@ -317,7 +357,7 @@ const PcodeOp *RizinPrintCSharp::findConstructor(const PcodeOp *allocation) cons
 		{
 			const PcodeOp *use = *it;
 			Function callee;
-			bool isConstructor = findCallee(use, callee) && callee.kind == RZ_GHIDRA_CSHARP_CONSTRUCTOR;
+			bool isConstructor = (findCallee(use, callee) && callee.kind == RZ_GHIDRA_CSHARP_CONSTRUCTOR) || isSharedConstructor(use);
 			if(isConstructor && use->numInput() > 1 && use->getIn(1) == vn && use->getParent() == allocation->getParent())
 				return use;
 		}
