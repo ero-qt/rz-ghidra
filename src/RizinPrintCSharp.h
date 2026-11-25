@@ -50,10 +50,12 @@ class RizinPrintCSharp : public RizinPrintC
 		bool findFunction(const ghidra::Address &addr, Function &function) const;
 		bool findCallee(const ghidra::PcodeOp *op, Function &function) const;
 		bool isSharedConstructor(const ghidra::PcodeOp *op) const;
+		bool isConstructorCall(const ghidra::PcodeOp *op) const;
 		bool fitsCall(const ghidra::PcodeOp *op, const RzGhidraCSharpSharer &sharer) const;
 		bool findSharer(const ghidra::PcodeOp *op, Function &function, unsigned int &index) const;
 		bool findGlobal(const ghidra::Varnode *vn, Global &global) const;
 		void pushTypeOf(const ghidra::PcodeOp *op, const Function &callee);
+		void pushConstructorChain(const ghidra::PcodeOp *op, const Function &callee, int first);
 		const RzGhidraCSharpType *findType(const ghidra::Datatype *ct) const;
 		std::string typeName(const ghidra::Datatype *ct);
 		bool isInstanceMethod(const ghidra::PcodeOp *op) const;

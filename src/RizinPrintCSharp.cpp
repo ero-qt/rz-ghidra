@@ -337,6 +337,27 @@ bool RizinPrintCSharp::isThis(const Varnode *vn, const PcodeOp *op) const
 	return sym && sym->getCategory() == Symbol::function_parameter && sym->getCategoryIndex() == 0;
 }
 
+/// Checks whether a call reads as a constructor's call, the way opCall() picks the called method: a known constructor,
+/// the constructor of the hidden argument's method global when the names don't know the called code, or a constructor
+/// that shares the called code.
+bool RizinPrintCSharp::isConstructorCall(const PcodeOp *op) const
+{
+	if(op->code() != CPUI_CALL)
+		return false;
+
+	Function callee;
+	bool isKnown = findCallee(op, callee);
+	if(isKnown && callee.kind == RZ_GHIDRA_CSHARP_CONSTRUCTOR)
+		return true;
+
+	Global instance;
+	const Varnode *last = op->numInput() > 1 ? op->getIn(op->numInput() - 1) : nullptr;
+	bool hasInstance = last && findGlobal(last, instance) && instance.hasMethod;
+	if(hasInstance)
+		return !isKnown && instance.method.kind == RZ_GHIDRA_CSHARP_CONSTRUCTOR;
+	return isSharedConstructor(op);
+}
+
 /// Returns the constructor's call on the object that a call allocates, when both are in 1 block, so they print as
 /// 1 `new` expression at the constructor's call. The call can also be of code that the constructor shares.
 const PcodeOp *RizinPrintCSharp::findConstructor(const PcodeOp *allocation) const
@@ -356,9 +377,7 @@ const PcodeOp *RizinPrintCSharp::findConstructor(const PcodeOp *allocation) cons
 		for(auto it = vn->beginDescend(); it != vn->endDescend(); ++it)
 		{
 			const PcodeOp *use = *it;
-			Function callee;
-			bool isConstructor = (findCallee(use, callee) && callee.kind == RZ_GHIDRA_CSHARP_CONSTRUCTOR) || isSharedConstructor(use);
-			if(isConstructor && use->numInput() > 1 && use->getIn(1) == vn && use->getParent() == allocation->getParent())
+			if(isConstructorCall(use) && use->numInput() > 1 && use->getIn(1) == vn && use->getParent() == allocation->getParent())
 				return use;
 		}
 	}
@@ -644,6 +663,23 @@ void RizinPrintCSharp::pushRaise(const PcodeOp *op, const Function &callee)
 	pushAtom(Atom(EMPTY_STRING, blanktoken, EmitMarkup::no_color));
 }
 
+/// Pushes a constructor's call without an allocation on the method's own object as `base(...)` or `this(...)`, and any
+/// other such call like C does, because C# doesn't have a form for it.
+void RizinPrintCSharp::pushConstructorChain(const PcodeOp *op, const Function &callee, int first)
+{
+	if(!isThis(op->getIn(1), op))
+	{
+		RizinPrintC::opCall(op);
+		return;
+	}
+
+	Function current;
+	findFunction(op->getParent()->getFuncdata()->getAddress(), current);
+	pushOp(&function_call, op);
+	pushAtom(Atom(current.type == callee.type ? KEYWORD_THIS : KEYWORD_BASE, syntax, EmitMarkup::keyword_color));
+	pushArguments(op, first, callee.parameters);
+}
+
 void RizinPrintCSharp::opCall(const PcodeOp *op)
 {
 	Function callee;
@@ -731,7 +767,10 @@ void RizinPrintCSharp::opCall(const PcodeOp *op)
 		{
 			const PcodeOp *allocation = callee.isStatic ? nullptr : findAllocation(op);
 			if(!allocation)
-				break;
+			{
+				pushConstructorChain(op, callee, first);
+				return;
+			}
 			pushOp(&assignment, op);
 			pushSymbolDetail(allocation->getOut(), op, false);
 			// The allocation's class has the type's arguments, which the constructor of a generic type doesn't
