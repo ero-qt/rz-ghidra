@@ -51,6 +51,15 @@ typedef struct rz_ghidra_csharp_type_t {
 } RzGhidraCSharpType;
 
 /**
+ * \brief A method that shares its code with other methods, like a getter that the linker folded into another class's.
+ */
+typedef struct rz_ghidra_csharp_sharer_t {
+	RzGhidraCSharpFunction function;
+	ut32 index; ///< the method's index among the methods that share the code
+	const char *parameter_structs; ///< the structs that the C parameters point to, `this` first, with a comma between
+} RzGhidraCSharpSharer;
+
+/**
  * \brief A global as C# knows it, like the global that a runtime fills with a class or a method.
  */
 typedef struct rz_ghidra_csharp_global_t {
@@ -70,6 +79,8 @@ typedef struct rz_ghidra_csharp_names_t {
 	const RzGhidraCSharpGlobal *(*global)(void *user, ut64 addr);
 	/// Returns the struct with a name, or NULL for a struct that C# doesn't know.
 	const RzGhidraCSharpType *(*type)(void *user, const char *name);
+	/// Returns a method that shares the code of the function at an address, from 0 on, or NULL after the last one.
+	const RzGhidraCSharpSharer *(*sharer)(void *user, ut64 addr, ut32 index);
 } RzGhidraCSharpNames;
 
 typedef enum {
@@ -77,6 +88,8 @@ typedef enum {
 	RZ_GHIDRA_CSHARP_LINK_FIELD, ///< the name of the member at `offset` of the struct `name`
 	RZ_GHIDRA_CSHARP_LINK_DECLARING_TYPE, ///< the name of the declaring type of the function at `offset`
 	RZ_GHIDRA_CSHARP_LINK_PROPERTY, ///< the name of the property of the accessor at `offset`
+	RZ_GHIDRA_CSHARP_LINK_SHARER, ///< the name of the method `sharer` that shares the code at `offset`
+	RZ_GHIDRA_CSHARP_LINK_SHARER_TYPE, ///< the name of the declaring type of that method
 } RzGhidraCSharpLinkKind;
 
 /**
@@ -88,6 +101,7 @@ typedef struct rz_ghidra_csharp_link_t {
 	RzGhidraCSharpLinkKind kind;
 	char *name; ///< the struct's name, which the caller frees
 	ut64 offset;
+	ut32 sharer; ///< the index of the method that shares the code at `offset`
 } RzGhidraCSharpLink;
 
 /**

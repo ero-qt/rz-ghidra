@@ -3,6 +3,8 @@
 
 #include "RizinPrintCSharp.h"
 
+#include <algorithm>
+
 #include <architecture.hh>
 #include <block.hh>
 #include <funcdata.hh>
@@ -89,6 +91,73 @@ bool RizinPrintCSharp::findCallee(const PcodeOp *op, Function &function) const
 	if(callpoint->getSpace()->getType() != IPTR_FSPEC)
 		return false;
 	return findFunction(FuncCallSpecs::getFspecFromConst(callpoint->getAddr())->getEntryAddress(), function);
+}
+
+/// Returns the name of the struct that a call's argument points to, also behind a cast, or an empty text.
+static std::string pointedStruct(const Varnode *vn)
+{
+	while(vn->isImplied() && vn->isWritten() && vn->getDef()->code() == CPUI_CAST)
+		vn = vn->getDef()->getIn(0);
+	const Datatype *ct = vn->getHigh()->getType();
+	if(ct->getMetatype() != TYPE_PTR)
+		return "";
+	const Datatype *pointed = ((const TypePointer *)ct)->getPtrTo();
+	return pointed->getMetatype() == TYPE_STRUCT ? pointed->getName() : "";
+}
+
+/// Checks whether a method that shares the called code takes the call's arguments: their count with the object of an
+/// instance method and the hidden last argument, and the struct of each argument that points to a struct where the
+/// method's parameter points to one.
+bool RizinPrintCSharp::fitsCall(const PcodeOp *op, const RzGhidraCSharpSharer &sharer) const
+{
+	int first = sharer.function.is_static ? 1 : 2;
+	if(op->numInput() - 1 != (int)sharer.function.parameters + first)
+		return false;
+
+	std::string structs = sharer.parameter_structs ? sharer.parameter_structs : "";
+	size_t start = 0;
+	for(int i = 1; i < op->numInput() - 1 && start <= structs.size(); ++i)
+	{
+		size_t end = std::min(structs.find(',', start), structs.size());
+		std::string expected = structs.substr(start, end - start);
+		start = end + 1;
+
+		std::string actual = pointedStruct(op->getIn(i));
+		if(!expected.empty() && !actual.empty() && actual != expected)
+			return false;
+	}
+	return true;
+}
+
+/// Finds the method that a call of shared code reads as, among the methods that share the code and fit the call. Every
+/// one of them runs the same code, so the call reads as an operator when one fits, or else as the only one that fits.
+bool RizinPrintCSharp::findSharer(const PcodeOp *op, Function &function, unsigned int &index) const
+{
+	if(!names || !names->sharer || op->code() != CPUI_CALL || op->getIn(0)->getSpace()->getType() != IPTR_FSPEC)
+		return false;
+
+	uint8 addr = FuncCallSpecs::getFspecFromConst(op->getIn(0)->getAddr())->getEntryAddress().getOffset();
+	int fitting = 0;
+	bool isOperator = false;
+	for(ut32 i = 0;; ++i)
+	{
+		const RzGhidraCSharpSharer *sharer = names->sharer(names->user, addr, i);
+		if(!sharer)
+			break;
+		if(isOperator || !fitsCall(op, *sharer))
+			continue;
+
+		isOperator = sharer->function.kind == RZ_GHIDRA_CSHARP_OPERATOR;
+		if(++fitting > 1 && !isOperator)
+			continue;
+		function.kind = sharer->function.kind;
+		function.type = sharer->function.type ? sharer->function.type : "";
+		function.name = sharer->function.name ? sharer->function.name : "";
+		function.isStatic = sharer->function.is_static;
+		function.parameters = (int)sharer->function.parameters;
+		index = sharer->index;
+	}
+	return isOperator || fitting == 1;
 }
 
 const RzGhidraCSharpType *RizinPrintCSharp::findType(const Datatype *ct) const
@@ -544,7 +613,19 @@ void RizinPrintCSharp::opCall(const PcodeOp *op)
 	// type's arguments, and the method itself when the call's target is code that the names don't know
 	Global instance;
 	const Varnode *last = op->numInput() > 1 ? op->getIn(op->numInput() - 1) : nullptr;
-	if(last && findGlobal(last, instance) && instance.hasMethod && (!isKnown || callee.kind <= RZ_GHIDRA_CSHARP_OPERATOR))
+	bool hasInstance = last && findGlobal(last, instance) && instance.hasMethod;
+
+	// A call of code that several methods share reads as one of those methods, unless the hidden argument names one
+	unsigned int sharer;
+	Function shared;
+	if(!hasInstance && findSharer(op, shared, sharer))
+	{
+		callee = shared;
+		isKnown = true;
+		sharerCalls[op->getTime()] = sharer;
+	}
+
+	if(hasInstance && (!isKnown || callee.kind <= RZ_GHIDRA_CSHARP_OPERATOR))
 	{
 		if(!isKnown)
 		{

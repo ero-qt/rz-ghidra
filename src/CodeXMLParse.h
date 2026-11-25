@@ -16,12 +16,13 @@ class Funcdata;
 };
 
 /// The struct names by the ids of the types that C# code names, the times of the calls that the code writes as a
-/// property's name, and the vector of RzGhidraCSharpLink that takes the parts of the code that name types, fields
-/// and properties
+/// property's name, the indexes of the methods that calls of shared code read as by the calls' times, and the vector
+/// of RzGhidraCSharpLink that takes the parts of the code that name types, fields and properties
 struct CodeXMLLinks
 {
 	const std::map<unsigned long long, std::string> *typeNames;
 	const std::set<unsigned long long> *propertyCalls;
+	const std::map<unsigned long long, unsigned int> *sharerCalls;
 	RzVector *links;
 };
 

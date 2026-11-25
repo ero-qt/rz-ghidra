@@ -296,7 +296,8 @@ static void Decompile(RzCore *core, ut64 addr, DecompileMode mode, std::stringst
 				{
 					std::map<unsigned long long, std::string> typeNames(csharp->getTypeLinks().begin(), csharp->getTypeLinks().end());
 					std::set<unsigned long long> propertyCalls(csharp->getPropertyCalls().begin(), csharp->getPropertyCalls().end());
-					CodeXMLLinks codeLinks = { &typeNames, &propertyCalls, links };
+					std::map<unsigned long long, unsigned int> sharerCalls(csharp->getSharerCalls().begin(), csharp->getSharerCalls().end());
+					CodeXMLLinks codeLinks = { &typeNames, &propertyCalls, &sharerCalls, links };
 					*out_code = ParseCodeXML(func, out_stream.str().c_str(), &codeLinks);
 				}
 				else

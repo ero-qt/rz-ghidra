@@ -300,20 +300,27 @@ static bool ReadLink(pugi::xml_node node, ParseCodeXMLContext *ctx, RzGhidraCSha
 		unsigned long long time = node.attribute("opref").as_ullong(ULLONG_MAX);
 		auto op = ctx->ops.find((uintm)time);
 		FuncCallSpecs *call = op == ctx->ops.end() ? nullptr : ctx->func->getCallSpecs(op->second);
-		if(!call || ctx->links->propertyCalls->count(time) == 0)
+		auto sharer = ctx->links->sharerCalls->find(time);
+		bool isSharer = sharer != ctx->links->sharerCalls->end();
+		if(!call || (!isSharer && ctx->links->propertyCalls->count(time) == 0))
 			return false;
-		link->kind = RZ_GHIDRA_CSHARP_LINK_PROPERTY;
+		link->kind = isSharer ? RZ_GHIDRA_CSHARP_LINK_SHARER : RZ_GHIDRA_CSHARP_LINK_PROPERTY;
 		link->offset = call->getEntryAddress().getOffset();
+		link->sharer = isSharer ? sharer->second : 0;
 		return true;
 	}
 	if(strcmp(node.name(), "op") == 0 && node.attribute("color").as_int(-1) == Emit::syntax_highlight::type_color)
 	{
-		auto op = ctx->ops.find((uintm)node.attribute("opref").as_ullong(ULLONG_MAX));
+		unsigned long long time = node.attribute("opref").as_ullong(ULLONG_MAX);
+		auto op = ctx->ops.find((uintm)time);
 		FuncCallSpecs *call = op == ctx->ops.end() ? nullptr : ctx->func->getCallSpecs(op->second);
 		if(!call)
 			return false;
-		link->kind = RZ_GHIDRA_CSHARP_LINK_DECLARING_TYPE;
+		auto sharer = ctx->links->sharerCalls->find(time);
+		bool isSharer = sharer != ctx->links->sharerCalls->end();
+		link->kind = isSharer ? RZ_GHIDRA_CSHARP_LINK_SHARER_TYPE : RZ_GHIDRA_CSHARP_LINK_DECLARING_TYPE;
 		link->offset = call->getEntryAddress().getOffset();
+		link->sharer = isSharer ? sharer->second : 0;
 		return true;
 	}
 	return false;

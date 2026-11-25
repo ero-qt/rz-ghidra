@@ -45,9 +45,12 @@ class RizinPrintCSharp : public RizinPrintC
 		const RzGhidraCSharpNames *names;
 		std::map<ghidra::uint8, std::string> typeLinks; ///< struct names by the ids of the types that the code names
 		std::set<ghidra::uintm> propertyCalls; ///< the calls of accessors that the code writes as their property's name
+		std::map<ghidra::uintm, unsigned int> sharerCalls; ///< the methods that calls of shared code read as, by time
 
 		bool findFunction(const ghidra::Address &addr, Function &function) const;
 		bool findCallee(const ghidra::PcodeOp *op, Function &function) const;
+		bool fitsCall(const ghidra::PcodeOp *op, const RzGhidraCSharpSharer &sharer) const;
+		bool findSharer(const ghidra::PcodeOp *op, Function &function, unsigned int &index) const;
 		bool findGlobal(const ghidra::Varnode *vn, Global &global) const;
 		void pushTypeOf(const ghidra::PcodeOp *op, const Function &callee);
 		const RzGhidraCSharpType *findType(const ghidra::Datatype *ct) const;
@@ -79,6 +82,9 @@ class RizinPrintCSharp : public RizinPrintC
 
 		/// Returns the calls of accessors that the printed code writes as their property's name, by the calls' times
 		const std::set<ghidra::uintm> &getPropertyCalls() const { return propertyCalls; }
+
+		/// Returns the indexes of the methods that the printed calls of shared code read as, by the calls' times
+		const std::map<ghidra::uintm, unsigned int> &getSharerCalls() const { return sharerCalls; }
 
 		void resetDefaults() override;
 		void adjustTypeOperators() override;
