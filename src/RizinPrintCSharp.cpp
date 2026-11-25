@@ -526,7 +526,8 @@ void RizinPrintCSharp::pushRaise(const PcodeOp *op, const Function &callee)
 	pushOp(&new_op, op);
 	pushAtom(Atom(KEYWORD_NEW, syntax, EmitMarkup::keyword_color));
 	pushOp(&function_call, op);
-	pushAtom(Atom(callee.type, syntax, EmitMarkup::type_color));
+	// A token of the call, so the code's parser links the exception's class like a called function's declaring type
+	pushAtom(Atom(callee.type, optoken, EmitMarkup::type_color, op));
 	pushAtom(Atom(EMPTY_STRING, blanktoken, EmitMarkup::no_color));
 }
 
