@@ -456,8 +456,12 @@ void RizinPrintCSharp::pushReceiver(const PcodeOp *op, const Function &callee)
 	pushAtom(Atom(isBase ? KEYWORD_BASE : KEYWORD_THIS, syntax, EmitMarkup::keyword_color));
 }
 
-void RizinPrintCSharp::pushMember(const PcodeOp *op, const Function &callee)
+/// Pushes a member's name after its receiver, and remembers the call of an accessor whose name is its property's,
+/// so the code's parser can link the property.
+void RizinPrintCSharp::pushMember(const PcodeOp *op, const Function &callee, bool isProperty)
 {
+	if(isProperty && !callee.isFromInstance)
+		propertyCalls.insert(op->getTime());
 	// A static function without a type is code that several methods share, which doesn't belong to 1 class
 	if(!callee.isStatic || !callee.type.empty())
 	{
@@ -581,7 +585,7 @@ void RizinPrintCSharp::opCall(const PcodeOp *op)
 		case RZ_GHIDRA_CSHARP_GETTER:
 			if(callee.parameters == 0)
 			{
-				pushMember(op, callee);
+				pushMember(op, callee, true);
 				return;
 			}
 			pushOp(&subscript, op);
@@ -593,7 +597,7 @@ void RizinPrintCSharp::opCall(const PcodeOp *op)
 				break;
 			pushOp(&assignment, op);
 			if(callee.parameters == 1)
-				pushMember(op, callee);
+				pushMember(op, callee, true);
 			else
 			{
 				pushOp(&subscript, op);

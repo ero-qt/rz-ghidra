@@ -75,10 +75,11 @@ typedef enum {
 	RZ_GHIDRA_CSHARP_LINK_TYPE, ///< the name of the type of the struct `name`
 	RZ_GHIDRA_CSHARP_LINK_FIELD, ///< the name of the member at `offset` of the struct `name`
 	RZ_GHIDRA_CSHARP_LINK_DECLARING_TYPE, ///< the name of the declaring type of the function at `offset`
+	RZ_GHIDRA_CSHARP_LINK_PROPERTY, ///< the name of the property of the accessor at `offset`
 } RzGhidraCSharpLinkKind;
 
 /**
- * \brief A part of the C# that names a type or a field, which Rizin's annotations don't have a type for.
+ * \brief A part of the C# that names a type, a field or a property, which Rizin's annotations don't have a type for.
  */
 typedef struct rz_ghidra_csharp_link_t {
 	size_t start;
@@ -91,7 +92,7 @@ typedef struct rz_ghidra_csharp_link_t {
 /**
  * \brief Decompiles the function at an address and prints it the way C# writes the code, with the given names.
  *
- * Adds the parts that name types and fields to `links`, a vector of RzGhidraCSharpLink.
+ * Adds the parts that name types, fields and properties to `links`, a vector of RzGhidraCSharpLink.
  */
 RZ_API RzAnnotatedCode *rz_ghidra_decompile_csharp(RzCore *core, ut64 addr, const RzGhidraCSharpNames *names, RzVector /*<RzGhidraCSharpLink>*/ *links);
 

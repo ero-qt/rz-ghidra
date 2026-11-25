@@ -271,8 +271,8 @@ static const std::map<std::string, std::vector <void (*)(ANNOTATOR_PARAMS)> > an
 };
 
 /**
- * Reads the link of a node of C# code that names a type, a field or the declaring type of a called function,
- * which the C# printer writes as an operator of the type color at the call.
+ * Reads the link of a node of C# code that names a type, a field, the property of a called accessor or the declaring
+ * type of a called function, which the C# printer writes as an operator of the type color at the call.
  **/
 static bool ReadLink(pugi::xml_node node, ParseCodeXMLContext *ctx, RzGhidraCSharpLink *link)
 {
@@ -293,6 +293,17 @@ static bool ReadLink(pugi::xml_node node, ParseCodeXMLContext *ctx, RzGhidraCSha
 		link->kind = RZ_GHIDRA_CSHARP_LINK_FIELD;
 		link->name = strdup_rz(name.value());
 		link->offset = node.attribute("off").as_ullong(0);
+		return true;
+	}
+	if(strcmp(node.name(), "funcname") == 0)
+	{
+		unsigned long long time = node.attribute("opref").as_ullong(ULLONG_MAX);
+		auto op = ctx->ops.find((uintm)time);
+		FuncCallSpecs *call = op == ctx->ops.end() ? nullptr : ctx->func->getCallSpecs(op->second);
+		if(!call || ctx->links->propertyCalls->count(time) == 0)
+			return false;
+		link->kind = RZ_GHIDRA_CSHARP_LINK_PROPERTY;
+		link->offset = call->getEntryAddress().getOffset();
 		return true;
 	}
 	if(strcmp(node.name(), "op") == 0 && node.attribute("color").as_int(-1) == Emit::syntax_highlight::type_color)

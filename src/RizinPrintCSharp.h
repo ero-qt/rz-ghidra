@@ -8,6 +8,7 @@
 #include "rz_ghidra.h"
 
 #include <map>
+#include <set>
 #include <string>
 
 /// \brief Prints a function of a C# program that a compiler like IL2CPP turned into native code
@@ -43,6 +44,7 @@ class RizinPrintCSharp : public RizinPrintC
 
 		const RzGhidraCSharpNames *names;
 		std::map<ghidra::uint8, std::string> typeLinks; ///< struct names by the ids of the types that the code names
+		std::set<ghidra::uintm> propertyCalls; ///< the calls of accessors that the code writes as their property's name
 
 		bool findFunction(const ghidra::Address &addr, Function &function) const;
 		bool findCallee(const ghidra::PcodeOp *op, Function &function) const;
@@ -59,7 +61,7 @@ class RizinPrintCSharp : public RizinPrintC
 		bool isFlagStore(const ghidra::PcodeOp *op) const;
 		bool isRuntimeCheck(const ghidra::FlowBlock *body) const;
 		void pushReceiver(const ghidra::PcodeOp *op, const Function &callee);
-		void pushMember(const ghidra::PcodeOp *op, const Function &callee);
+		void pushMember(const ghidra::PcodeOp *op, const Function &callee, bool isProperty = false);
 		void pushArguments(const ghidra::PcodeOp *op, int first, int count);
 		bool pushOperator(const ghidra::PcodeOp *op, const Function &callee, int first);
 		void pushRaise(const ghidra::PcodeOp *op, const Function &callee);
@@ -73,6 +75,9 @@ class RizinPrintCSharp : public RizinPrintC
 
 		/// Returns the struct names by the ids of the types that the printed code names
 		const std::map<ghidra::uint8, std::string> &getTypeLinks() const { return typeLinks; }
+
+		/// Returns the calls of accessors that the printed code writes as their property's name, by the calls' times
+		const std::set<ghidra::uintm> &getPropertyCalls() const { return propertyCalls; }
 
 		void resetDefaults() override;
 		void adjustTypeOperators() override;
