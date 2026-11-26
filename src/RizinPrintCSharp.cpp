@@ -34,6 +34,13 @@ void RizinPrintCSharp::resetDefaults()
 	setInstructionComment(getInstructionComment() & ~(uint4)Comment::warning);
 }
 
+void RizinPrintCSharp::docFunction(const Funcdata *fd)
+{
+	printed = fd;
+	RizinPrintC::docFunction(fd);
+	printed = nullptr;
+}
+
 void RizinPrintCSharp::adjustTypeOperators()
 {
 	RizinPrintC::adjustTypeOperators();
@@ -447,6 +454,35 @@ bool RizinPrintCSharp::isFlagStore(const PcodeOp *op) const
 	return def && def->code() == CPUI_PTRSUB && def->getIn(0)->isConstant() && def->getIn(1)->isConstant();
 }
 
+/// Returns whether a type points to the runtime's metadata of a class or a method, like the class of a method's global.
+bool RizinPrintCSharp::isMetadata(const Datatype *ct) const
+{
+	if(ct->getMetatype() != TYPE_PTR)
+		return false;
+	const RzGhidraCSharpType *type = findType(((const TypePointer *)ct)->getPtrTo());
+	return type && type->is_metadata;
+}
+
+/// Returns whether a statement sets a class's metadata to what a function that the names don't know returns for it,
+/// like `klass = InitFromCodegenSlow(klass)`, which runs the class's static constructor once and returns the class.
+bool RizinPrintCSharp::isClassInit(const PcodeOp *op) const
+{
+	const Varnode *out = op->getOut();
+	if(!out || !isMetadata(out->getHigh()->getType()))
+		return false;
+	while(op->code() == CPUI_CAST && op->getIn(0)->isWritten())
+		op = op->getIn(0)->getDef();
+
+	Function callee;
+	unsigned int sharer;
+	if(op->code() != CPUI_CALL || op->numInput() != 2 || findCallee(op, callee) || findSharer(op, callee, sharer))
+		return false;
+	const Varnode *klass = op->getIn(1);
+	while(klass->isImplied() && klass->isWritten() && klass->getDef()->code() == CPUI_CAST)
+		klass = klass->getDef()->getIn(0);
+	return klass->getHigh() == out->getHigh();
+}
+
 /// Returns whether the body of an `if` only runs a class's static constructor or fills metadata globals and sets
 /// the flag that it did.
 bool RizinPrintCSharp::isRuntimeCheck(const FlowBlock *body) const
@@ -469,6 +505,7 @@ bool RizinPrintCSharp::isRuntimeCheck(const FlowBlock *body) const
 
 		Function callee;
 		bool isHelper = findCallee(op, callee) && (callee.kind == RZ_GHIDRA_CSHARP_CLASS_INIT || callee.kind == RZ_GHIDRA_CSHARP_METADATA_INIT);
+		isHelper = isHelper || isClassInit(op);
 		bool isFlag = isFlagStore(op);
 		bool isByNumber = !isHelper && isCallByNumber(op);
 		if(!isHelper && !isFlag && !isByNumber)
@@ -479,6 +516,100 @@ bool RizinPrintCSharp::isRuntimeCheck(const FlowBlock *body) const
 	}
 	// A call by a number only fills metadata when the body sets the flag that it did
 	return hasHelper || (hasCallByNumber && hasFlag);
+}
+
+/// Returns whether a branch skips the body of an `if` that only does the runtime's checks, which don't print.
+bool RizinPrintCSharp::isRuntimeBranch(const PcodeOp *op) const
+{
+	const FlowBlock *condition = op->getParent();
+	if(condition->sizeOut() != 2)
+		return false;
+	for(int4 i = 0; i < 2; ++i)
+	{
+		const FlowBlock *body = condition->getOut(i);
+		bool isSkipped = body->sizeIn() == 1 && body->sizeOut() == 1 && body->getOut(0) == condition->getOut(1 - i);
+		if(isSkipped && isRuntimeCheck(body))
+			return true;
+	}
+	return false;
+}
+
+/// Returns whether a read of a class's metadata doesn't show in the printed code: it finds the class's static fields,
+/// which print as `Class.field`, it sets a variable of metadata, it tests the class's flags in a runtime check or it
+/// passes the class to the function of a runtime check.
+bool RizinPrintCSharp::isSilentRead(const PcodeOp *op, int depth) const
+{
+	if(depth > 8)
+		return false;
+	if(op->code() == CPUI_CBRANCH)
+		return isRuntimeBranch(op);
+	if(isHiddenStatement(op))
+		return true;
+
+	const Varnode *out = op->getOut();
+	if(!out)
+		return false;
+	if(!out->isImplied())
+		return isMetadata(out->getHigh()->getType()) || isClassInit(op);
+
+	const Datatype *ct = out->getHighTypeDefFacing();
+	const Datatype *pointed = ct->getMetatype() == TYPE_PTR ? ((const TypePointer *)ct)->getPtrTo() : nullptr;
+	const RzGhidraCSharpType *type = pointed ? findType(pointed) : nullptr;
+	if(type && type->is_static)
+		return true;
+	for(auto it = out->beginDescend(); it != out->endDescend(); ++it)
+	{
+		if(!isSilentRead(*it, depth + 1))
+			return false;
+	}
+	return true;
+}
+
+/// Returns whether a variable of a class's metadata stays out of the printed code with its statements, because C#
+/// doesn't have a form for it and no printed statement reads it.
+bool RizinPrintCSharp::isHiddenMetadata(const HighVariable *high) const
+{
+	if(!isMetadata(high->getType()))
+		return false;
+	for(int4 i = 0; i < high->numInstances(); ++i)
+	{
+		const Varnode *vn = high->getInstance(i);
+		for(auto it = vn->beginDescend(); it != vn->endDescend(); ++it)
+		{
+			if(!isSilentRead(*it, 0))
+				return false;
+		}
+	}
+	return true;
+}
+
+void RizinPrintCSharp::emitVarDeclStatement(const Symbol *sym)
+{
+	// leaves out the declaration of a symbol whose variables all stay out of the printed code
+	if(!printed)
+	{
+		RizinPrintC::emitVarDeclStatement(sym);
+		return;
+	}
+
+	bool isHidden = false;
+	for(auto it = printed->beginLoc(); it != printed->endLoc(); ++it)
+	{
+		// a free variable, like a constant, doesn't have a high variable
+		if((*it)->isFree())
+			continue;
+		const HighVariable *high = (*it)->getHigh();
+		if(high->getSymbol() != sym)
+			continue;
+		if(!isHiddenMetadata(high))
+		{
+			isHidden = false;
+			break;
+		}
+		isHidden = true;
+	}
+	if(!isHidden)
+		RizinPrintC::emitVarDeclStatement(sym);
 }
 
 void RizinPrintCSharp::emitBlockIf(const BlockIf *bl)
@@ -520,7 +651,7 @@ void RizinPrintCSharp::emitBlockBasic(const BlockBasic *bb)
 		const Varnode *vn = inst->getOut();
 		if(vn != (const Varnode *)0 && vn->isImplied())
 			continue;
-		if(isHiddenStatement(inst))
+		if(isHiddenStatement(inst) || (vn && isHiddenMetadata(vn->getHigh())))
 			continue;
 		if(separator && isSet(comma_separate))
 		{

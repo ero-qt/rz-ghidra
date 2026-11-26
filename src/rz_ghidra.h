@@ -48,6 +48,7 @@ typedef struct rz_ghidra_csharp_type_t {
 	bool is_object; ///< whether a pointer to the struct is a reference to an object of the class
 	bool is_static; ///< whether the struct has the static fields of the class
 	bool is_array; ///< whether the struct is an array's object, whose member of an array type has the array's items
+	bool is_metadata; ///< whether the struct is the runtime's metadata of a class or a method, which C# doesn't have a form for
 } RzGhidraCSharpType;
 
 /**

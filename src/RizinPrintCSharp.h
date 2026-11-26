@@ -7,6 +7,8 @@
 #include "RizinPrintC.h"
 #include "rz_ghidra.h"
 
+#include <variable.hh>
+
 #include <map>
 #include <set>
 #include <string>
@@ -46,6 +48,7 @@ class RizinPrintCSharp : public RizinPrintC
 		std::map<ghidra::uint8, std::string> typeLinks; ///< struct names by the ids of the types that the code names
 		std::set<ghidra::uintm> propertyCalls; ///< the calls of accessors that the code writes as their property's name
 		std::map<ghidra::uintm, unsigned int> sharerCalls; ///< the methods that calls of shared code read as, by time
+		const ghidra::Funcdata *printed = nullptr; ///< the function that the printer prints
 
 		bool findFunction(const ghidra::Address &addr, Function &function) const;
 		bool findCallee(const ghidra::PcodeOp *op, Function &function) const;
@@ -66,6 +69,11 @@ class RizinPrintCSharp : public RizinPrintC
 		bool isCallByNumber(const ghidra::PcodeOp *op) const;
 		bool isFlagStore(const ghidra::PcodeOp *op) const;
 		bool isRuntimeCheck(const ghidra::FlowBlock *body) const;
+		bool isMetadata(const ghidra::Datatype *ct) const;
+		bool isClassInit(const ghidra::PcodeOp *op) const;
+		bool isRuntimeBranch(const ghidra::PcodeOp *op) const;
+		bool isSilentRead(const ghidra::PcodeOp *op, int depth) const;
+		bool isHiddenMetadata(const ghidra::HighVariable *high) const;
 		void pushReceiver(const ghidra::PcodeOp *op, const Function &callee);
 		void pushMember(const ghidra::PcodeOp *op, const Function &callee, bool isProperty = false);
 		void pushArguments(const ghidra::PcodeOp *op, int first, int count);
@@ -74,6 +82,7 @@ class RizinPrintCSharp : public RizinPrintC
 		bool pushItems(const ghidra::PcodeOp *op, const ghidra::TypePointer *pointer);
 
 	protected:
+		void emitVarDeclStatement(const ghidra::Symbol *sym) override;
 		void pushTypeStart(const ghidra::Datatype *ct, bool noident) override;
 		void pushSymbol(const ghidra::Symbol *sym, const ghidra::Varnode *vn, const ghidra::PcodeOp *op) override;
 
@@ -90,6 +99,7 @@ class RizinPrintCSharp : public RizinPrintC
 		const std::map<ghidra::uintm, unsigned int> &getSharerCalls() const { return sharerCalls; }
 
 		void resetDefaults() override;
+		void docFunction(const ghidra::Funcdata *fd) override;
 		void adjustTypeOperators() override;
 		void emitBlockBasic(const ghidra::BlockBasic *bb) override;
 		void emitBlockIf(const ghidra::BlockIf *bl) override;
