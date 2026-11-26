@@ -223,7 +223,10 @@ Datatype *RizinTypeFactory::fromRzTypeInternal(const RzType *ctype, string *erro
 				return nullptr;
 			}
 
-			Datatype *r = stack_types ? findByName(ctype->identifier.name, *stack_types, prototype && refd) : findByName(ctype->identifier.name);
+			// A pointer to a struct that is still being created points to the unfinished struct, which gets its fields
+			// once it's done, so a struct can point to itself or to a struct that points back to it
+			bool isCreating = refd && stack_types && stack_types->find(ctype->identifier.name) != stack_types->end();
+			Datatype *r = stack_types ? findByName(ctype->identifier.name, *stack_types, (prototype && refd) || isCreating) : findByName(ctype->identifier.name);
 			if(!r)
 			{
 				if(error)
